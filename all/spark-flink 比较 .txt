@@ -1,0 +1,16 @@
+一、spark 和 flink 区别
+  1、比较
+      1、类SQL查询    Spark SQL         MRQL
+      2、图计算       GraphX            Spargel（基础）和Gelly（库）
+      3、机器学习      MLib             Flink ML
+      4、流计算        Spark Streaming  Flink Streaming
+
+    flink:
+        1、Flink支持增量迭代，具有对迭代自动优化的功能。 性能好, 不易 oom
+        2、Flink的流式计算跟Storm性能差不多，支持毫秒级计算，而Spark则只能支持秒级计算。
+        3、同时支持 流 和 批计算
+
+    spark:
+        1、Spark 社区非常活跃，生态系统越来越完善。
+        2、spark sql  完善
+        3、生态成熟

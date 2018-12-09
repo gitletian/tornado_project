@@ -1,0 +1,241 @@
+一、redis
+    1、Redis有哪些数据结构？
+        字符串String、字典Hash、列表List、集合Set、有序集合SortedSet、Pub/Sub。
+            HyperLogLog、Geo 、Redis Module，像BloomFilter，RedisSearch，Redis-ML
+
+    2、使用过 Redis 分布式锁么，它是什么回事？ 如果在setnx之后执行expire之前进程意外crash或者要重启维护了，那会怎么样？
+        先拿 setnx 来争抢锁，抢到之后，再用 expire 给锁加一个过期时间防止锁忘记了释放。
+        set指令有非常复杂的参数，这个应该是可以同时把setnx和expire合成一条指令来用的！
+
+
+    3、假如Redis里面有1亿个key，其中有10w个key是以某个固定的已知的前缀开头的，如果将它们全部找出来？如果这个redis正在给线上的业务提供服务，那使用keys指令会有什么问题？
+        使用keys指令可以扫出指定模式的key列表。
+        redis关键的一个特性：redis的单线程的。keys指令会导致线程阻塞一段时间，线上服务会停顿，直到指令执行完毕，服务才能恢复。
+        这个时候可以使用scan指令，scan指令可以无阻塞的提取出指定模式的key列表，但是会有一定的重复概率，在客户端做一次去重就可以了，但是整体所花费的时间会比直接用keys指令长。
+
+    4、使用过Redis做异步队列么，你是怎么用的？
+        一般使用list结构作为队列，rpush生产消息，lpop消费消息。当lpop没有消息的时候，要适当sleep一会再重试。
+        如果对方追问可不可以不用sleep呢？list还有个指令叫blpop，在没有消息的时候，它会阻塞住直到消息到来。
+
+    5、如果对方追问能不能生产一次消费多次呢？ pub/sub有什么缺点？
+        使用pub/sub主题订阅者模式，可以实现1:N的消息队列。
+        在消费者下线的情况下，生产的消息会丢失，得使用专业的消息队列如rabbitmq等。
+
+    6、如果有大量的key需要设置同一时间过期，一般需要注意什么？
+        如果大量的key过期时间设置的过于集中，到过期的那个时间点，redis可能会出现短暂的卡顿现象。一般需要在时间上加一个随机值，使得过期时间分散一些。
+
+    7、Redis如何做持久化的？
+        bgsave 做镜像全量持久化，aof做增量持久化。因为bgsave会耗费较长时间，不够实时，在停机的时候会导致大量丢失数据，所以需要aof来配合使用。在redis实例重启时，会使用bgsave持久化文件重新构建内存，再使用aof重放近期的操作指令来实现完整恢复重启之前的状态。
+
+    8、如果突然机器掉电会怎样？取决于aof日志sync属性的配置，如果不要求性能，在每条写指令时都sync一下磁盘，就不会丢失数据。但是在高性能的要求下每次都sync是不现实的，一般都使用定时sync，比如1s1次，这个时候最多就会丢失1s的数据。
+
+    9、bgsave的原理是什么？
+        你给出两个词汇就可以了，fork和cow。fork是指redis通过创建子进程来进行bgsave操作，cow指的是copy on write，子进程创建后，父子进程共享数据段，父进程继续提供读写服务，写脏的页面数据会逐渐和子进程分离开来。
+
+    10、Pipeline有什么好处，为什么要用pipeline？
+        可以将多次IO往返的时间缩减为一次，前提是pipeline执行的指令之间没有因果相关性。使用redis-benchmark进行压测的时候可以发现影响redis的QPS峰值的一个重要因素是pipeline批次指令的数目。
+
+    11、Redis的同步机制了解么？
+        Redis可以使用主从同步，从从同步。第一次同步时，主节点做一次bgsave，并同时将后续修改操作记录到内存buffer，待完成后将rdb文件全量同步到复制节点，复制节点接受完成后将rdb镜像加载到内存。加载完成后，再通知主节点将期间修改的操作记录同步到复制节点进行重放就完成了同步过程。
+
+    12、是否使用过Redis集群，集群的原理是什么？
+        Redis Sentinal 着眼于高可用，在master宕机时会自动将slave提升为master，继续提供服务。
+        Redis Cluster 着眼于扩展性，在单个redis内存不足时，使用Cluster进行分片存储。
+
+
+    13. mySQL里有2000w数据，redis中只存20w的数据，如何保证redis中的数据都是热点数据
+
+    　　相关知识：redis 内存数据集大小上升到一定大小的时候，就会施行数据淘汰策略（回收策略）。redis 提供 6种数据淘汰策略：
+
+        volatile-lru：从已设置过期时间的数据集（server.db[i].expires）中挑选最近最少使用的数据淘汰
+        volatile-ttl：从已设置过期时间的数据集（server.db[i].expires）中挑选将要过期的数据淘汰
+        volatile-random：从已设置过期时间的数据集（server.db[i].expires）中任意选择数据淘汰
+
+        allkeys-lru：从数据集（server.db[i].dict）中挑选最近最少使用的数据淘汰
+        allkeys-random：从数据集（server.db[i].dict）中任意选择数据淘汰
+        no-enviction（驱逐）：禁止驱逐数据
+
+
+    14、HyperLogLog介绍
+        1、HyperLogLog 可以接受多个元素作为输入，并给出输入元素的基数估算值：
+            • 基数：集合中不同元素的数量。比如 {'apple', 'banana', 'cherry', 'banana', 'apple'} 的基数就是 3 。
+            • 估算值：算法给出的基数并不是精确的，可能会比实际稍微多一些或者稍微少一些，但会控制在合的范围之内。
+
+        2、HyperLogLog 的优点是，即使输入元素的数量或者体积非常非常大，计算基数所需的空间总是固定的、并且是很小的。但是 HyperLogLog 不能像集合那样，返回输入的各个元素。
+
+        3、将元素添加至 HyperLogLog
+            PFADD key element [element ...]    将任意数量的元素添加到指定的 HyperLogLog 里面。
+
+        4、返回给定 HyperLogLog 的基数估算值
+            PFCOUNT key [key ...]
+            当只给定一个 HyperLogLog 时，命令返回给定 HyperLogLog 的基数估算值。
+            当给定多个 HyperLogLog 时，命令会先对给定的 HyperLogLog 进行并集计算，得出一个合并后的, 合并得出的 HyperLogLog 不会被储存，使用之后就会被删掉）。
+
+        5、合并多个 HyperLogLog: PFMERGE destkey sourcekey [sourcekey ...]
+
+
+
+二、hadoop
+    大数据部分:
+    1、hdfs 的读写流程
+      读流程:
+        1、客户端发送请求，调用DistributedFileSystem API的open方法发送请求到Namenode，获得block的位置信息，因为真正的block是存在Datanode节点上的，而namenode里存放了block位置信息的元数据。
+        2、Namenode返回所有block的位置信息，并将这些信息返回给客户端。
+        3、客户端拿到block的位置信息后调用FSDataInputStream API的read方法并行的读取block信息，图中4和5流程是并发的，block默认有3个副本，所以每一个block只需要从一个副本读取就可以。
+        4、datanode返回给客户端。
+
+      写流程:
+        1、客户端发送请求，调用DistributedFileSystem API的create方法去请求namenode，并告诉namenode上传文件的文件名、文件大小、文件拥有者。
+        2、namenode 根据以上信息算出文件需要切成多少块block，以及block要存放在哪个datanode上，并将这些信息返回给客户端。
+        3、客户端调用FSDataInputStream API的write方法首先将其中一个block写在datanode上，每一个block默认都有3个副本，并不是由客户端分别往3个datanode上写3份，而是由
+           已经上传了block的datanode产生新的线程，由这个namenode按照放置副本规则往其它datanode写副本，这样的优势就是快。
+        4、写完后返回给客户端一个信息，然后客户端在将信息反馈给namenode。
+        5、需要注意的是上传文件的拥有者就是客户端上传文件的用户名，举个例子用windows客户端上传文件，那么这个文件的拥有者就是administrator，和linux上的系统用户名不是一样的。
+
+
+    2、mapreduce的流程（shuffle的sort，partitions，group）
+        首先是 Mapreduce经过SplitInput 输入分片 决定map的个数在用Record记录 key value。然后分为以下三个流程：
+        Map：
+        Shuffle：、
+
+           合并（merge）: map输出时先输出到环形内存，当内存使用率达到60%时开始溢出写入到文件，溢出文件都是小文件，所以就要合并他们，在这个构成中就会排序，根据key值比较排序
+           排序（sort）:
+           分区（partition）:会根据map输出的结果分成几个文件为reduce准备，有几个reducetask就分成几个文件，在job上设置分区器job.setPartitionerClass(MyPartition.class)Myrtition.class要继承Partitioner这个类
+           分组（group）:分区时会调用分组器，把同一分区中的相同key的数据对应的value制作成一个iterable，并且会在sort。在job上设置分组器。Job.setGroupCompartorClass(MyGroup.class)MyGroup.class必须继承RawCompartor的类跟子类
+
+        Reduce
+            通过http方式
+          输入key时map输出时的key value是分组器分的iterable
+
+        ⚠️: 中间结果是在 本地磁盘
+
+
+    3、yarn 的资源调度
+
+    4、jobhistory 的作用
+        1、JobHistory用来记录已经finished的mapreduce运行日志，日志信息存放于HDFS目录中，默认情况下没有开启此功能
+        2、在yarn-site.xml中添加 <!-- 开启日志聚合 -->
+        3、在mapred-site.xml中添加
+            1、<!-- 设置jobhistoryserver 没有配置的话 history入口不可用 查看作业的历史运行情况-->  mapreduce.jobhistory.address
+            2、<!-- 配置web端口 查看当前正在运行-->   mapreduce.jobhistory.webapp.address
+            3、<!-- 配置正在运行中的日志在hdfs上的存放路径 -->  mapreduce.jobhistory.intermediate-done-dir
+            4、<!-- 配置运行过的日志存放在hdfs上的存放路径 --> mapreduce.jobhistory.done-dir
+            5、启动： 在hadoop/sbin/目录下执行
+            6、停止: ./mr-jobhistory-daemon.sh stop historyserver
+
+        spark
+            1、start-history-server.sh
+            2、spark-defaults.conf
+                spark.eventLog.enabled  true
+                spark.eventLog.compress true
+                spark.eventLog.dir hdfs://192.168.1.2:8020/SparkeventLog
+
+                spark.history.fs.logDirectory  hdfs://192.168.1.2:8020/SparkeventLog
+                spark.yarn.historyServer.address 192.168.1.2:18080
+
+
+    5、JouranlNode 集群
+
+
+    6、namenode HA的实现
+
+        5.1、zkfc 部分: ZKFailOverController 是Hadoop中通过ZK实现FC功能的一个实用工具
+            zkfc是要和NN一一对应的，两个NN就要部署两个FC。它负责监控NN的状态，并及时的把状态信息写入ZK。
+            1、monitoring: 它会定时发起health-check的命令, 检查NN的健康状态。
+            2、Session: 当本地NN是健康的时候，zkfc将会在zk中持有一个session。active的 zkfc 会持有一个 节点锁("ephemeral")，一旦本地NN失效了，那么这个节点将会被自动删除。
+            3、ActiveStandbyElector: 接收ZKFC的选举请求，通过Zookeeper自动完成主备选举，选举完成后回调ZKFC的主备切换方法对NameNode进行Active和Standby状态的切换
+            4、Failover: 如果本地NN是健康的，并且zkfc发现没有其他的NN持有那个独占锁。那么他将试图去获取该锁，一旦成功，那么它就需要执行Failover，然后成为active的NN节点。
+                Failover的过程是：
+                    第一步，对之前的NN执行 fence，如果需要的话。
+                    第二步，将本地 NN 转换到active状态。
+
+
+        5.2、NameNode部分：
+            (1) 初始化后，Active把editlog日志写到2N+1上JN上，每个editlog有一个编号，每次写editlog只要其中大多数JN返回成功（即大于等于N+1）即认定写成功。
+            (2) Standby定期从JN读取一批editlog，并应用到内存中的FsImage中。
+            (3) 如何fencing： NameNode每次写Editlog都需要传递一个编号Epoch给JN，JN会对比Epoch，如果比自己保存的Epoch大或相同，则可以写，JN更新自己的Epoch到最新，否则拒绝操作。在切换时，Standby转换为Active时，会把Epoch+1，这样就防止即使之前的NameNode向JN写日志，也会失败。
+            (4) 写日志：
+              (a) NN通过RPC向N个JN异步写Editlog，当有N/2+1个写成功，则本次写成功。
+              (b) 写失败的JN下次不再写，直到调用滚动日志操作，若此时JN恢复正常，则继续向其写日志。
+              (c) 每条editlog都有一个编号txid，NN写日志要保证txid是连续的，JN在接收写日志时，会检查txid是否与上次连续，否则写失败。
+            (5) 读日志：
+              (a) 定期遍历所有JN，获取未消化的editlog，按照txid排序。
+              (b) 根据txid消化editlog。
+
+            (6) 切换时日志恢复机制
+              (a) 主从切换时触发
+              (b) 准备恢复（prepareRecovery），standby向JN发送RPC请求，获取txid信息，并对选出最好的JN。
+              (c) 接受恢复（acceptRecovery），standby向JN发送RPC，JN之间同步Editlog日志。
+              (d) Finalized日志。即关闭当前editlog输出流时或滚动日志时的操作。
+              (e) Standby同步editlog到最新
+
+            (7) 如何选取最好的JN
+              (a) 有Finalized的不用in-progress
+              (b) 多个Finalized的需要判断txid是否相等
+              (c) 没有Finalized的首先看谁的 epoch 更大
+              (d) Epoch一样则选txid大的。
+
+
+
+    7、namenode 的 【防止脑裂】
+
+
+        1、zookeeper fencing: 在分布式系统中脑裂又称为双主现象，由于Zookeeper的“假死”，长时间的垃圾回收或其它原因都可能导致双Active NameNode现象，此时两个NameNode都可以对外提供服务，无法保证数据一致性。对于生产环境，这种情况的出现是毁灭性的，必须通过自带的隔离（Fencing）机制预防这种现象的出现。
+        ActiveStandbyElector为了实现fencing隔离机制，在成功创建 ActiveStandbyElectorLock 临时节点后，
+        会创建另外一个ActiveBreadCrumb持久节点，这个持久节点保存了Active NameNode 的地址信息。
+        当Active NameNode在正常的状态下断开Zookeeper Session (注意由于ActiveStandbyElectorLock是临时节点，也会随之删除)，会一起删除持久节点ActiveBreadCrumb。
+        但是如果ActiveStandbyElector在异常的状态下关闭Zookeeper Session，那么由于ActiveBreadCrumb是持久节点，会一直保留下来。
+        当另一个NameNode（standy => active）选主成功之后，会注意到上一个Active NameNode遗留下来的ActiveBreadCrumb节点，
+        从而会回调ZKFailoverController的方法对旧的Active NameNode进行fencing。
+        fencing:
+            ① 首先ZKFC会尝试调用旧 Active NameNode的HAServiceProtocol RPC接口的transitionToStandby方法，看能否将状态切换为Standby；
+            ② 如果调用transitionToStandby方法切换状态失败，那么就需要执行Hadoop自带的隔离措施，Hadoop目前主要提供两种隔离措施：
+                ssh fence：SSH to the Active NameNode and kill the process；
+                shell fence：run an arbitrary shell command to fence the Active NameNode；
+        只有在成功地执行完成fencing之后，选主成功的ActiveStandbyElector才会回调ZKFC的becomeActive方法将对应的NameNode切换为Active，开始对外提供服务。
+
+        2、editlog fencing 确保只有一个NN能写成功
+            JouranlNode
+
+        3、datanode fencing 确保只有一个NN能命令DN
+             (a) 每个NN改变状态的时候，向DN发送自己的状态和一个序列号。
+             (b) DN在运行过程中维护此序列号，当failover时，新的NN在返回DN心跳时会返回自己的active状态和一个更大的序列号。DN接收到这个返回是认为该NN为新的active。
+             (c) 如果这时原来的active（比如GC）恢复，返回给DN的心跳信息包含active状态和原来的序列号，这时DN就会拒绝这个NN的命令。
+             (d) 在failover后，active在DN汇报所有删除报告前不应该删除任何block。
+
+        4、客户端 fencing
+            确保只有一个NN能响应客户端请求。让访问standby nn的客户端直接失败。并重试
+
+    8、yearn 的模型
+        1.client向yarn提交job，首先找ResourceManager分配资源，
+        2.ResourceManager开启一个Container,在Container中运行一个Application manager
+        3.Application manager找一台nodemanager启动Application master，计算任务所需的计算
+        4.Application master向Application manager（Yarn）申请运行任务所需的资源
+        5.Resource scheduler将资源封装发给Application master
+        6.Application master将获取到的资源分配给各个nodemanager
+        7.各个nodemanager得到任务和资源开始执行map task
+        8.map task执行结束后，开始执行reduce task
+        9.map task和 reduce task将执行结果反馈给Application master
+        10.Application master将任务执行的结果反馈pplication manager
+
+
+        JobTracker：这是运行在Namenode上，负责提交和跟踪MapReduce Job的守护程序。它会向Tasktracker分配的任务。
+        TaskTracker：这是Datanode上运行的守护进程。它在Slave节点上负责具体任务的运行。
+
+
+    6）当两个客户端尝试访问对HDFS相同的文件，会发生什么？
+        HDFS只支持独占写入。
+        当第一个客户端连接“Namenode”打开文件进行写入时，“Namenode”授予租约的客户端创建这个文件。当第二个客户端试图打开同一个文件写入时，“Namenode”会注意到该文件的租约已经授予给另一个客户端，并拒绝第二个客户端打开请求
+
+
+
+
+
+
+
+
+
+
+
+
+

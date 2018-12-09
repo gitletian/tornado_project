@@ -1,0 +1,182 @@
+
+一、单例
+    线程池、缓存、日志对象 等被设计成单例, 具有资源管理器的功能
+
+    1、懒汉式单例
+    1.1、
+        public class DoubleLockSingleton {
+
+            private static volatile DoubleLockSingleton instance = null;
+
+            private DoubleLockSingleton() {
+            }
+
+            public static DoubleLockSingleton getInstance() {
+                // 在getInstance中做了两次null检查，确保了只有第一次调用单例的时候才会做同步，这样也是线程安全的，同时避免了每次都同步的性能损耗
+                if (instance == null) {
+                    synchronized (DoubleLockSingleton.class) {
+                        if (instance == null) {
+                            instance = new DoubleLockSingleton();
+                        }
+                    }
+                }
+                return instance;
+            }
+        }
+
+
+    1.2、 既实现了线程安全，又避免了同步带来的性能影响, 利用了classloader的机制来保证初始化instance时只有一个线程，所以也是线程安全的，同时没有性能损耗
+        public class Singleton {
+            private static class LazyHolder {
+               private static final Singleton INSTANCE = new Singleton();
+            }
+            private Singleton (){}
+            public static final Singleton getInstance() {
+               return LazyHolder.INSTANCE;
+            }
+        }
+        问题 代码块、静态代码块、 内部类、静态内部类的加载时机
+            外部类: 静态代码块 -> 主函数 -> 普通代码块 -> 构造方法 -> 普通方法
+            普通内部类: 普通代码块 ->  构造方法 -> 内部类
+            静态内部类: 静态代码块 -> 构造方法 -> 普通方法
+
+
+    2、饿汉式单例
+        //饿汉式单例类.在类初始化时，已经自行实例化
+        public class Singleton1 {
+            private Singleton1() {}
+            private static final Singleton1 single = new Singleton1();
+            //静态工厂方法
+            public static Singleton1 getInstance() {
+                return single;
+            }
+        }
+
+
+
+
+二、工厂模式
+    工厂模式的两种情况：
+    　　1.在编码时不能预见需要创建哪种类的实例。
+    　　2.系统不应依赖于产品类实例如何被创建、组合和表达的细节
+
+    工厂模式主要是为创建对象提供了接口
+        1. 简单工厂模式(Simple Factory)
+        2. 工厂方法模式(Factory Method)
+        3. 抽象工厂模式(Abstract Factory)
+
+    简单工厂模式: 不符合开闭原则, 对扩展开放、对修改关闭
+
+    工厂方法模式 组成:
+        1、抽象工厂角色：这是工厂方法模式的核心，它与应用程序无关。是具体工厂角色必须实现的接口或者必须继承的父类。在java中它由抽象类或者接口来实现。
+        2、具体工厂角色：它含有和具体业务逻辑有关的代码。由应用程序调用以创建对应的具体产品的对象。在java中它由具体的类来实现。
+        3、抽象产品角色：它是具体产品继承的父类或者是实现的接口。在java中一般有抽象类或者接口来实现。
+        4、具体产品角色：具体工厂角色所创建的对象就是此角色的实例。在java中由具体的类来实现
+
+    //抽象工厂角色
+    public interface Driver{
+        public Car driverCar();
+    }
+
+    // 具体工厂角色
+    public class BenzDriver implements Driver{
+        public Car driverCar(){
+            return new Benz();
+        }
+    }
+    public class BmwDriver implements Driver{
+        public Car driverCar() {
+            return new Bmw();
+        }
+    }
+    ......//应该和具体产品形成对应关系，这里略...
+
+
+    //抽象产品角色
+    public interface Car{
+        public void drive();
+    }
+
+
+    //具体产品角色
+    public class Benz implements Car{
+        public void drive() {
+            System.out.println("Driving Benz ");
+        }
+    }
+
+
+    //有请暴发户先生
+    public class Magnate
+    {
+        public static void main(String[] args)
+        {
+            try{
+                // 工厂方法使用一个抽象工厂角色作为核心来代替在简单工厂模式中使用具体类作为核心
+                Driver driver = new BenzDriver();
+
+                Car car = driver.driverCar();
+                car.drive();
+            }catch(Exception e)
+                { }
+         }
+    }
+
+
+三、 责任链设计模式
+    责任链模式是一种对象的行为模式。在责任链模式里，很多对象由每一个对象对其下家的引用而连接起来形成一条链。请求在这个链上传递，直到链上的某一个对象决定处理此请求
+    Tomcat中的Filter就是使用了责任链模式，创建一个Filter除了要在web.xml文件中做相应配置外，还需要实现javax.servlet.Filter接口。
+
+    动态地重新组织和分配责任
+
+四、 观察者设计模式
+    在对象之间定义了一对多的依赖，这样一来，当一个对象改变状态，依赖它的对象会收到通知并自动更新。其实就是发布订阅模式，发布者发布信息，订阅者获取信息，订阅了就能收到信息，没订阅就收不到信息。
+    4.1 组成
+        抽象被观察者角色：也就是一个抽象主题，它把所有对观察者对象的引用保存在一个集合中，每个主题都可以有任意数量的观察者。抽象主题提供一个接口，可以增加和删除观察者角色。一般用一个抽象类和接口来实现。
+        抽象观察者角色：为所有的具体观察者定义一个接口，在得到主题通知时更新自己。
+        具体被观察者角色：也就是一个具体的主题，在集体主题的内部状态改变时，所有登记过的观察者发出通知。
+        具体观察者角色：实现抽象观察者角色所需要的更新接口，一边使本身的状态与制图的状态相协调。
+    有一个微信公众号服务，不定时发布一些消息，关注公众号就可以收到推送消息，取消关注就收不到推送消息。
+
+
+五、代理模式
+    在不改变源码的情况下，实现对目标对象的功能扩展。
+    1、静态代理
+    2、动态代理（也叫JDK代理）
+        调用Proxy类的静态方法newProxyInstance即可，该方法会返回代理类对象
+        static Object newProxyInstance(ClassLoader loader, Class<?>[] interfaces,InvocationHandler h )
+        接收的三个参数依次为:
+            ClassLoader loader：指定当前目标对象使用类加载器，写法固定
+            Class<?>[] interfaces：目标对象实现的接口的类型，写法固定
+            InvocationHandler h：事件处理接口，需传入一个实现类，一般直接使用匿名内部类
+
+            public class Test{
+                public static void main(String[] args) {
+                    Singer target = new Singer();
+                    ISinger proxy  = (ISinger) Proxy.newProxyInstance(
+                            target.getClass().getClassLoader(),
+                            target.getClass().getInterfaces(),
+                            new InvocationHandler() {
+                                @Override
+                                public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                                    System.out.println("向观众问好");
+                                    //执行目标对象方法
+                                    Object returnValue = method.invoke(target, args);
+                                    System.out.println("谢谢大家");
+                                    return returnValue;
+                                }
+                            });
+                    proxy.sing();
+                    }
+            }
+
+        总结：以上代码只有标黄的部分是需要自己写出，其余部分全都是固定代码。由于java封装了newProxyInstance这个方法的实现细节，所以使用起来才能这么方便，具体的底层原理将会在下一小节说明。
+        缺点：可以看出静态代理和JDK代理有一个共同的缺点，就是目标对象必须实现一个或多个接口，加入没有，则可以使用Cglib代理。
+
+
+
+    3、Cglib代理
+        前提条件：
+        需要引入cglib的jar文件，由于Spring的核心包中已经包括了Cglib功能，所以也可以直接引入spring-core-3.2.5.jar
+        目标类不能为final
+        目标对象的方法如果为final/static，那么就不会被拦截，即不会执行目标对象额外的业务方法

@@ -1,0 +1,257 @@
+1、 Happens-before法则：Java存储模型有一个happens-before原则，就是如果动作B要看到动作A的执行结果（无论A/B是否在同一个线程里面执行），那么A/B就需要满足happens-before关系
+Java存储模型动作： 一个动作（Action）包括：变量的读写、监视器加锁和释放锁、线程的start()和join()。后面还会提到锁的的。
+	（1）同一个线程中的每个Action都happens-before于出现在其后的任何一个Action。
+	（2）对一个监视器的解锁happens-before于每一个后续对同一个监视器的加锁。
+	（3）对volatile字段的写入操作happens-before于每一个后续的同一个字段的读操作。
+	（4）Thread.start()的调用会happens-before于启动线程里面的动作。
+	（5）Thread中的所有动作都happens-before于其他线程检查到此线程结束或者Thread.join（）中返回或者Thread.isAlive()==false。
+	（6）一个线程A调用另一个另一个线程B的interrupt（）都happens-before于线程A发现B被A中断（B抛出异常或者A检测到B的isInterrupted（）或者interrupted()）。
+	（7）一个对象构造函数的结束happens-before与该对象的finalizer的开始
+	（8）如果A动作happens-before于B动作，而B动作happens-before与C动作，那么A动作happens-before于C动作。
+
+
+2、volatile： volatile相当于synchronized的弱实现，也就是说volatile实现了类似synchronized的语义，却又没有锁机制。它确保对volatile字段的更新以可预见的方式告知其他的线程。
+volatile包含以下语义：
+
+    （1）Java 存储模型不会对valatile指令的操作进行重排序：这个保证对volatile变量的操作时按照指令的出现顺序执行的。
+    （2）volatile变量不会被缓存在寄存器中（只有拥有线程可见）或者其他对CPU不可见的地方，每次总是从主存中读取volatile变量的结果。也就是说对于volatile变量的修改，其它线程总是可见的，并且不是使用自己线程栈内部的变量。也就是在happens-before法则中，对一个valatile变量的写操作后，其后的任何读操作理解可见此写操作的结果。
+        尽管volatile变量的特性不错，但是volatile并不能保证线程安全的，也就是说volatile字段的操作不是原子性的，volatile变量只能保证可见性（一个线程修改后其它线程能够理解看到此变化后的结果），要想保证原子性，目前为止只能加锁！
+
+
+    应用volatile变量的三个原则：
+    （1）写入变量不依赖此变量的值，或者只有一个线程修改此变量
+    （2）变量的状态不需要与其它变量共同参与不变约束
+    （3）访问变量不需要加锁
+
+
+
+3、ThreadLocal:
+    1、ThreadLocal 提供了线程本地的实例。它与普通变量的区别在于，每个使用该变量的线程都会初始化一个完全独立的实例副本。ThreadLocal 变量通常被private static修饰。当一个线程结束时，它所使用的所有 ThreadLocal 相对的实例副本都可被回收。
+    2、适用于每个线程需要自己独立的实例且该实例需要在多个方法中被使用，也即变量在线程间隔离而在方法或类间共享的场景
+
+4、死锁：
+	1、相互竞争
+	2、饥饿死
+
+    死锁解决方案： 避免死锁的解决方案是：尽可能的按照锁的使用规范请求锁，另外锁的请求粒度要小（不要在不需要锁的地方占用锁，锁不用了尽快释放）；
+        在高级锁里面总是使用 tryLock 或者 定时机制（这个以后会讲，就是指定获取锁超时的时间，如果时间到了还没有获取到锁那么就放弃）。
+        高级锁（Lock）里面的这两种方式可以有效的避免死锁
+
+    减少锁竞争：
+        1、减少锁持有的时间
+        2、减少锁请求的频率
+        3、采用共享锁取代独占锁
+
+
+
+5、多线程为何要同步, 同步原理
+    5.1 、当一个有限的资源被多个线程共享的时候，为了保证对共享资源的互斥访问，我们一定要给他们排出一个先来后到。而要做到这一点，对象锁在这里起着非常重要的作用。
+    5.2、加锁,
+        锁原理:
+            在java虚拟机中，每个对象和类在逻辑上都是和一个监视器相关联的。对于对象来说，相关联的监视器保护对象的实例变量。对于类来说，监视器保护类的类变量。如果一个对象没有实例变量，或者一个类没有变量，相关联的监视器就什么也不监视。
+            为了实现监视器的排他性监视能力，java虚拟机为每一个对象和类都关联一个锁。代表任何时候只允许一个线程拥有的特权。线程访问实例变量或者类变量不需锁。
+            如果线程获取了锁，那么在它释放这个锁之前，就没有其他线程可以获取同样数据的锁了。（锁住一个对象就是获取对象相关联的监视器）
+            类锁实际上用对象锁来实现。当虚拟机装载一个class文件的时候，它就会创建一个java.lang.Class类的实例。当锁住一个对象的时候，实际上锁住的是那个类的Class对象。
+            一个线程可以多次对同一个对象上锁。对于每一个对象，java虚拟机维护一个加锁计数器，线程每获得一次该对象，计数器就加1，每释放一次，计数器就减 1，当计数器值为0时，锁就被完全释放了。
+
+    在Java程序运行时环境中，JVM需要对两类线程共享的数据进行协调：
+        1）保存在堆中的实例变量
+        2）保存在方法区中的类变量
+    在Java多线程编程中，最常见的synchronized关键字实际上是依靠对象锁的机制来实现线程同步的。
+
+
+
+6、sleep() 和 wait()
+    6.1、sleep() -> Thread; wait() -> Object
+    6.2、sleep() 让出cpu, 不释放锁, wait() 放弃锁, 进入等待对象的等待锁定池, 只有针对此对象调用notify()方法后本线程才进入对象锁定池准备
+
+    6.3、yield()  它能让当前线程由“运行状态”进入到“就绪状态”, 不释放锁, 同时开始竞争
+
+7、线程的几种状态
+    1. 新建状态(New) : 线程对象被创建后，就进入了新建状态。例如，Thread thread = new Thread()。
+    2. 就绪状态(Runnable): 也被称为“可执行状态”。线程对象被创建后，其它线程调用了该对象的start()方法，从而来启动该线程。例如，thread.start()。处于就绪状态的线程，随时可能被CPU调度执行。
+    3. 运行状态(Running) : 线程获取CPU权限进行执行。需要注意的是，线程只能从就绪状态进入到运行状态。
+    4. 阻塞状态(Blocked)  : 阻塞状态是线程因为某种原因放弃CPU使用权，暂时停止运行。直到线程进入就绪状态，才有机会转到运行状态。阻塞的情况分三种：
+        (01) 等待阻塞 -- 通过调用线程的wait()方法，让线程等待某工作的完成。
+        (02) 同步阻塞 -- 线程在获取synchronized同步锁失败(因为锁被其它线程所占用)，它会进入同步阻塞状态。
+        (03) 其他阻塞 -- 通过调用线程的sleep()或join()或发出了I/O请求时，线程会进入到阻塞状态。当sleep()状态超时、join()等待线程终止或者超时、或者I/O处理完毕时，线程重新转入就绪状态。
+    5. 死亡状态(Dead)    : 线程执行完了或者因异常退出了run()方法，该线程结束生命周期。
+
+
+
+
+一、 Atomic
+	1、AtomicInteger   整数原子
+
+
+	2、AtomicIntegerArray  数组原子
+		void set(int i, int newValue)
+		int getAndIncrement(int i)
+		boolean compareAndSet(int i, int expect, int update)
+
+	3、AtomicIntegerFieldUpdater   字段的原子更新
+		基于反射的原子更新字段的值
+		约束：
+			（1）字段必须是volatile类型的
+			（2）只能是实例变量，不能是类变量，也就是说不能加static关键字。
+			（3）只能是可修改变量，不能使final变量，
+			（4）对于 AtomicIntegerFieldUpdater 和AtomicLongFieldUpdater只能修改int/long类型的字段，不能修改其包装类型（Integer/Long）。如果要修改包装类型就需要使用 AtomicReferenceFieldUpdater。
+	4、AtomicStampedReference 维护的是一种类似<Object,int>的数据结构  并且能够对此对象和计数同时进行原子操作
+	5、AtomicMarkableReference 类的<Object,Boolean>  可以用原子方式对其进行更新
+
+
+二、CAS 操作
+	1、
+		synchronized： 独占锁， 独占锁是一种悲观锁
+		compareAndSet： 乐观锁用到的机制就是CAS，Compare and Swap
+	2、原子操作： 利用CPU的CAS指令，同时借助JNI来完成Java的非阻塞算法。其它原子操作都是利用类似的特性完成的。而整个J.U.C都是建立在CAS之上的
+	3、CAS有3个操作数，内存值V，旧的预期值A，要修改的新值B。当且仅当预期值A和内存值V相同时，将内存值V修改为B，否则什么都不做
+	4、CAS看起来很爽，但是会导致“ABA问题”。
+		比如说一个线程one从内存位置V中取出A，这时候另一个线程two也从内存中取出A，并且two进行了一些操作变成了B，然后two又将V位置的数据变成A，这时候线程one进行CAS操作发现内存中仍然是A，然后one操作成功。尽管线程one的CAS操作成功，但是不代表这个过程就是没有问题的。如果链表的头在变化了两次后恢复了原值，但是不代表链表就没有变化。因此前面提到的原子操作AtomicStampedReference/AtomicMarkableReference就很有用了。这允许一对变化的元素进行原子操作。
+
+
+三、lock
+	1、ReentrantLock（lock） 标准的互斥操作,完全互斥排他的，这样其实效率是不高的
+		公平锁和非公平锁： 如果获取一个锁是按照请求的顺序得到的，那么就是公平锁，否则就是非公平锁。
+		公平锁保证一个阻塞的线程最终能够获得锁，因为是有序的，所以总是可以按照请求的顺序获得锁。不公平锁意味着后请求锁的线程可能在其前面排列的休眠线程恢复前拿到锁，这样就有可能提高并发的性能
+
+	2、Condition （lock）
+		await*()：每一个Lock可以有任意数据的Condition对象，Condition是与Lock绑定的，所以就有Lock的公平性特性：如果是公平锁，线程为按照FIFO的顺序从Condition.await（挂起）中释放，如果是非公平锁，那么后续的锁竞争就不保证FIFO顺序了。
+		signal/signalAll的需求，就是要将Condition.await*()中FIFO队列中第一个Node唤醒（或者全部Node）唤醒。尽管所有Node可能都被唤醒，但是要知道的是仍然只有一个线程能够拿到锁，其它没有拿到锁的线程仍然需要自旋等待
+		condition对象的signal方法可以唤醒wait线程
+
+	3、闭锁（Latch）－> CountDownLatch（tool）
+		一种同步方法，可以延迟线程的进度直到线程到达某个终点状态， 闭锁的状态是一次性的，它确保在闭锁打开之前所有特定的活动都需要在闭锁打开之后才能完成。
+		CountDownLatch：  
+			startLatch.await(); 等待
+			调用startLatch.countDown()打开闭锁
+			new CountDownLatch(times); 初始化了一个N次的计数器，每个任务执行完成后都会将计数器减一，所有任务完成后计数器就变为了0，这样主线程闭锁overLatch拿到此信号后就可以继续往下执行了。
+		共享锁： 所有共享锁的线程共享同一个资源，一旦任意一个线程拿到共享资源，那么所有线程就都拥有的同一份资源。也就是通常情况下共享锁只是一个标志，所有线程都等待这个标识是否满足，一旦满足所有线程都被激活（相当于所有线程都拿到锁一样）。这里的闭锁CountDownLatch就是基于共享锁的实现
+	
+	4、CyclicBarrier（tool）栅栏, 要么全部要么全不 (all-or-none) 的破坏模式
+		可以循环使用, 它允许一组线程互相等待，直到到达某个公共屏障点 (common barrier point)。所谓屏障点就是一组任务执行完毕的时刻。
+
+        4.1、CyclicBarrier与CountDownLatch比较
+        　　1）CountDownLatch:一个线程(或者多个)，等待另外N个线程完成某个事情之后才能执行；CyclicBarrier:N个线程相互等待，任何一个线程完成之前，所有的线程都必须等待。
+        　　2）CountDownLatch:一次性的；CyclicBarrier:可以重复使用。
+        　　3）CountDownLatch基于AQS；CyclicBarrier基于锁和Condition。本质上都是依赖于volatile和CAS实现的。
+
+
+	5、Semaphore（tool）
+	    Semaphore可以控制某个资源可被同时访问的个数
+		Semaphore是一个计数器，在计数器不为0的时候对线程就放行，一旦达到0，那么所有请求资源的新线程都会被阻塞，包括增加请求到许可的线程，也就是说Semaphore不是可重入的。每一次请求一个许可都会导致计数器减少1，同样每次释放一个许可都会导致计数器增加1，一旦达到了0，新的许可请求线程将被挂起
+		acquire()获取一个许可, 如果没有就等待，而release()释放一个许可
+		tryAcquire(timeout, TimeUnit.MILLISECONDS)
+
+
+
+	6、ReadWriteLock 读写锁 （lock）
+		6.1、ReentrantReadWriteLock： 特性
+			非公平锁（默认
+			重入性
+			锁降级
+		6.2、ReadLock
+		6.3、WriteLock
+
+    7、总结
+        Lock类也可以实现线程同步，而Lock获得锁需要执行lock方法，释放锁需要执行unLock方法
+        Lock类可以创建Condition对象，Condition对象用来是线程等待和唤醒线程，需要注意的是Condition对象的唤醒的是用同一个Condition执行await方法的线程，所以也就可以实现唤醒指定类的线程
+        Lock类分公平锁和不公平锁，公平锁是按照加锁顺序来的，非公平锁是不按顺序的，也就是说先执行lock方法的锁不一定先获得锁
+        Lock类有读锁和写锁，读读共享，写写互斥，读写互斥
+
+
+四、并发容器
+	1、ConcurrentHashMap 是HashMap的线程安全版本，ConcurrentSkipListMap是TreeMap的线程安全版本
+		V putIfAbsent(K key,V value)
+		boolean remove(Object key,Object value)
+		boolean replace(K key,V oldValue,V newValue)
+		V replace(K key,V value)
+		1.1、ConcurrentHashMap 弱一致性
+		    get与containsKey两个方法几乎完全一致：他们都没有使用锁，而是通过Unsafe对象的getObjectVolatile()方法提供的原子读语义，来获得Segment以及对应的链表，然后对链表遍历判断是否存在key相同的节点以及获得该节点的value。
+		    正是因为get操作几乎所有时候都是一个无锁操作(get中有一个readValueUnderLock调用,不过这句执行到的几率极小),使得同一个Segment实例上的put和get可以同时进行,这就是get操作是弱一致的根本原因
+
+		但由于遍历过程中其他线程可能对链表结构做了调整，因此get和containsKey返回的可能是过时的数据，这一点是ConcurrentHashMap在弱一致性上的体现
+        1.2、 ConcurrentHashMap#clear
+            因为没有全局的锁,在清除完一个segments之后,正在清理下一个segments的时候,已经清理segments可能又被加入了数据,因此clear返回的时候,ConcurrentHashMap中是可能存在数据的。因此,clear方法是弱一致的。
+
+        1.3、ConcurrentHashMap中的迭代器
+            在遍历过程中,如果已经遍历的数组上的内容变化了,迭代器不会抛出ConcurrentModificationException异常。如果未遍历的数组上的内容发生了变化,则有可能反映到迭代过程中。这就是ConcurrentHashMap迭代器弱一致的表现。
+
+五、queue 通常来讲Queue描述的是一种FIFO的队列，当然不全都是，  靠链表结构实现
+	通常情况下Queue都是靠链表结构实现的，但是链表意味着有一些而外的引用开销，如果是双向链表开销就更大了。所以为了节省内存，一种方式就是使用固定大小的数组来实现队列。在这种情况下队列的大小是固定，元素的遍历通过数组的索引进行，很显然这是一种双向链表的模型。
+	1、Queue  非线程安全
+	2、PriorityQueue
+	3、Deque 双向队列
+	4、BlockingQueue 线程安全
+	6、PriorityBlockingQueue 线程安全
+	6、BlockingDeque  线程安全 这种阻塞队列允许在队列的头和尾部分别操作元素
+	7、DelayQueue  线程安全
+
+
+六、线程池
+	总结下这个小节：
+		线程池有运行、关闭、停止、结束四种状态，结束后就会释放所有资源
+		平缓关闭线程池使用shutdown()
+		立即关闭线程池使用shutdownNow()，同时得到未执行的任务列表
+		检测线程池是否正处于关闭中，使用isShutdown()
+		检测线程池是否已经关闭使用isTerminated()
+		定时或者永久等待线程池关闭结束使用awaitTermination()操作
+
+
+	ScheduledThreadPoolExecutor和ThreadPoolExecutor的唯一区别在于任务是有序（按照执行时间顺序）的，并且需要到达时间点（临界点）才能执行
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

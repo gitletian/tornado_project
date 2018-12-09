@@ -1,0 +1,126 @@
+
+一、hbase
+    1、访问HBase Table中的行，只有三种方式
+        a、通过单个rowkey访问
+        b、通过rowkey的range
+        c、全表扫描
+
+    2、物理存储模型
+        a、Table在行的方向上分割为多个HRegion，每个HRegion分散在不同的RegionServer中。
+        b、每个HRegion由多个Store构成，每个Store由一个MemStore和0或多个StoreFile组成，每个Store保存一个Columns Family,StoreFile以HFile格式存储在HDFS中。
+        c、HBase中的每张表都通过键按照一定的范围被分割成多个子表（HRegion），默认一个HRegion超过256M就要被分割成两个，这个过程由HRegionServer管理，而HRegion的分配由HMaster管理。
+
+
+
+    3、 HMaster的作用：
+        为HRegionServer分配HRegion
+        负责HRegionServer的负载均衡
+        发现失效的HRegionServer并重新分配
+        HDFS上的垃圾文件回收
+        处理Schema更新请求
+
+
+
+    4、 HRegionServer的作用：
+        维护HMaster分配给它的HRegion，处理对这些HRegion的IO请求
+        负责切分正在运行过程中变得过大的HRegion
+
+        可以看到，Client访问HBase上的数据并不需要HMaster参与，寻址访问ZooKeeper和HRegionServer，数据读写访问HRegionServer，
+            HMaster仅仅维护Table和Region的元数据信息，Table的元数据信息保存在ZooKeeper上，负载很低
+
+    5、写操作流程
+        (1) Client通过Zookeeper的调度，向RegionServer发出写数据请求，在Region中写数据。
+        (2) 数据被写入Region的MemStore，直到MemStore达到预设阈值。
+        (3) MemStore中的数据被Flush成一个StoreFile。与此同时，系统会在Zookeeper中记录一个CheckPoint，表示这个时刻之前的数据变更已经持久化了。StoreFile是只读的，一旦创建后就不可以再修改。因此Hbase的更新其实是不断追加的操作。
+        (4) 随着StoreFile文件的不断增多，当其数量增长到一定阈值后，触发Compact合并操作，将多个StoreFile合并成一个StoreFile，同时进行版本合并和数据删除。
+        (5) StoreFiles通过不断的Compact合并操作，逐步形成越来越大的StoreFile。
+        (6) 单个StoreFile大小超过一定阈值后，触发Split操作，把当前Region Split成2个新的Region。父Region会下线，新Split出的2个子Region会被HMaster分配到相应的RegionServer上，使得原先1个Region的压力得以分流到2个Region上。
+
+    6、读操作流程
+        (1) Client访问Zookeeper，查找-ROOT-表，获取.META.表信息。
+        (2) 从.META.表查找，获取存放目标数据的Region信息，从而找到对应的RegionServer。
+        (3) 通过RegionServer获取需要查找的数据。
+        (4) Regionserver的内存分为MemStore和BlockCache两部分，MemStore主要用于写数据，BlockCache主要用于读数据。读请求先到MemStore中查数据，查不到就到BlockCache中查，再查不到就会到StoreFile上读，并把读的结果放入BlockCache。
+
+    7、Rowkey 设计原则
+        1、Rowkey长度原则: Rowkey 是一个二进制码流，Rowkey 的长度被很多开发者建议说设计在10~100 个字节，不过建议是越短越好，不要超过16 个字节
+        2、高位作为散列字段
+        3、Rowkey唯一原则
+
+    8、Hbase中一个Cell 的结构
+        Cell：由{row key, column(=<family> + <label>), version}唯一确定的单元。cell 中的数据是没有类型的，全部是字节码形式存贮。
+
+    9、Hbase 启动的流程
+        .运行 hbase-config.sh
+        hbase-config.sh的作用：
+        1>.装载相关配置，如HBASE_HOME目录，conf目录，regionserver机器列表，JAVA_HOME 目录等，它会调用$HBASE_HOME/conf/hbase-env.sh .
+        2>.解析参数（0.96 版本及以后才可以带唯一参数 autorestart，作用就是重启）
+        3>.调用 hbase-daemon.sh 来启动 master.
+        4>.调用 hbase-daemons.sh 来启动 regionserver zookeeper master-backup.
+        2.hbase-env.sh 的作用：
+        主要是配置 JVM 及其 GC 参数，还可以配置 log 目录及参数，配置是否需要 hbase 管
+        理 ZK，配置进程 id 目录等.
+        3.hbase-daemons.sh 的作用：根据需要启动的进程，
+        如 zookeeper,则调用 zookeepers.sh
+        如 regionserver，则调用 regionservers.sh
+        如 master-backup，则调用 master-backup.sh
+        4.zookeepers.sh 的作用：
+        如果 hbase-env.sh 中的 HBASE_MANAGES_ZK"="true"，那么通过ZKServerTool这个类解析xml配置文件，获取 ZK 节点列表，然后通过 SSH 向这些节点发送远程命令执行。
+        5.regionservers.sh 的作用：
+        与 zookeepers.sh 类似，通过配置文件，获取 regionserver 机器列表，然后 SSH 向这些机器发送远程命令：
+        6.master-backup.sh 的作用：
+        通过 backup-masters 这个配置文件，获取 backup-masters 机器列表,然后 SSH 向这些机器发送远程命令。
+
+    10、HBASE中compact
+        在hbase中每当有memstore数据flush到磁盘之后，就形成一个storefile，当storeFile的数量达到一定程度后，就需要将 storefile 文件来进行 compaction 操作。
+        Compact 的作用：
+        1>.合并文件
+        2>.清除过期，多余版本的数据
+        3>.提高读写数据的效率
+        HBase 中实现了两种 compaction 的方式：minor and major. 这两种 compaction 方式的区别是：
+        1、Minor 操作只用来做部分文件的合并操作以及包括 minVersion=0 并且设置 ttl 的过期版本清理，不做任何删除数据、多版本数据的清理工作。
+        2、Major 操作是对 Region 下的HStore下的所有StoreFile执行合并操作，最终的结果是整理合并出一个文件。
+        3、minor compaction的结果是在一个Store中导致更少,更大的SotreFile。major compaction的结果是每个Store 生成一个StoreFile。
+
+    11、hbase 数据初始化( bulkload 批量)
+            存入HBase：普通写入是用JavaAPI put来实现，批量导入推荐使用BulkLoad
+            val conf = HBaseConfiguration.create();
+            val tableName = "data1"
+            val table = new HTable(conf,tableName)
+            conf.set(TableOutputFormat.OUTPUT_TABLE,tableName)
+
+            lazy val job = Job.getInstance(conf)
+            job.setMapOutputKeyClass(classOf[ImmutableBytesWritable])
+            job.setMapOutputValueClass(classOf[KeyValue])
+            HFileOutputFormat.configureIncrementalLoad(job,table)
+
+            val rdd = sc.textFile("/data/produce/2015/2015-03-01.log").map(_.split("@")).map{x => (DigestUtils.md5Hex(x(0)+x(1)).substring(0,3)+x(0)+x(1),x(2))}.sortBy(x =>x._1).map{x=>{val kv:KeyValue = new KeyValue(Bytes.toBytes(x._1),Bytes.toBytes("v"),Bytes.toBytes("value"),Bytes.toBytes(x._2+""));(new ImmutableBytesWritable(kv.getKey),kv)}}
+
+            rdd.saveAsNewAPIHadoopFile("/tmp/data1",classOf[ImmutableBytesWritable],classOf[KeyValue],classOf[HFileOutputFormat],job.getConfiguration())
+            val bulkLoader = new LoadIncrementalHFiles(conf)
+            bulkLoader.doBulkLoad(new Path("/tmp/data1"),table)
+
+    12、HBase优化方法
+        1、region 预建分区
+        2、HFile 给HFile设定一个合适的值
+        3、关闭 Compaction，在闲时进行手动Compaction
+            因为HBase中存在Minor Compaction和Major Compaction，也就是对HFile进行合并，所谓合并就是I/O读写，大量的HFile进行肯定会带来I/O开销，甚至是I/O风暴，所以为了避免这种不受控制的意外发生，建议关闭自动Compaction，在闲时进行compaction
+        4、批量数据写入时采用BulkLoad
+        5、开启过滤，提高查询速度
+        6、使用压缩：一般推荐使用Snappy和LZO压缩
+
+
+
+二、kylin
+    1、kylin由以下几部分组成：
+    　　· REST Server：提供一些restful接口，例如创建cube、构建cube、刷新cube、合并cube等cube的操作，project、table、cube等元数据管理、用户访问权限、系统配置动态修改等。除此之外还可以通过该接口实现SQL的查询，这些接口一方面可以通过第三方程序的调用，另一方也被kylin的web界面使用。
+    　　· jdbc/odbc接口：kylin提供了jdbc的驱动，驱动的classname为org.apache.kylin.jdbc.Driver，使用的url的前缀jdbc:kylin:，使用jdbc接口的查询走的流程和使用RESTFul接口查询走的内部流程是相同的。这类接口也使得kylin很好的兼容tebleau甚至mondrian。
+    　　· Query引擎：kylin使用一个开源的Calcite框架实现SQL的解析，相当于SQL引擎层。
+    　　· Routing：该模块负责将解析SQL生成的执行计划转换成cube缓存的查询，cube是通过预计算缓存在hbase中，这部分查询是可以再秒级甚至毫秒级完成，而还有一些操作使用过查询原始数据（存储在hadoop上通过hive上查询），这部分查询的延迟比较高。
+    　　· Metadata：kylin中有大量的元数据信息，包括cube的定义，星状模型的定义、job的信息、job的输出信息、维度的directory信息等等，元数据和cube都存储在hbase中，存储的格式是json字符串，除此之外，还可以选择将元数据存储在本地文件系统。
+    　　· Cube构建引擎：这个模块是所有模块的基础，它负责预计算创建cube，创建的过程是通过hive读取原始数据然后通过一些mapreduce计算生成Htable然后load到hbase中。
+
+    2、谈一谈，你心目中的Restful API？
+        对于Restful API的理解，个人仅限于使用层面。DELETE用来删除，GET用来获取，POST和PUT不同,POST可以创建，PUT可以更新。
+
+
