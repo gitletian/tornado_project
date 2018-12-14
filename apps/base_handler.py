@@ -1,9 +1,8 @@
 # coding: utf-8
 # __author__: ""
 
-from pycket.session import SessionMixin
-import tornado.websocket
 import tornado.web
+from tornado.websocket import WebSocketHandler
 from pycket.session import SessionMixin
 from utils.db import db
 from models.user_model import user_model
@@ -23,7 +22,7 @@ class BaseHandler(tornado.web.RequestHandler, SessionMixin):
         self.db.close()
 
 
-class BaseWebSocket(tornado.websocket.WebSocketHandler, SessionMixin):
+class BaseWebSocket(WebSocketHandler, SessionMixin):
     def get_current_user(self):
         if self.session.get("username"):
             return user_model.by_name(self.session.get("username"))

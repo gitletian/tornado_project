@@ -1,11 +1,10 @@
 # coding: utf-8
 # __author__: ""
 
-import tornado.ioloop
-import tornado.httpserver
+from tornado.ioloop import IOLoop
+from tornado.httpserver import HTTPServer
 from tornado.options import options
-# from .application import application as app
-import application as app
+from application import application as app
 from utils.db import db
 
 
@@ -15,9 +14,9 @@ if __name__ == "__main__":
     if options.t:
         db.init_db()
 
-    http_server = tornado.httpserver.HTTPServer(app)
+    http_server = HTTPServer(app)
     http_server.listen(options.port)
     print('start server...')
-    tornado.ioloop.IOLoop.instance().start()
+    IOLoop.instance().start()
 
 

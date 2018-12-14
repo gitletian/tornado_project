@@ -1,5 +1,13 @@
 # coding: utf-8
 # __author__: ""
+from utils.object_dict import ObjectDict
+
+conf = None
+
+
+def init_conf():
+    global conf
+    conf = ObjectDict(dev)
 
 
 dev = dict(
@@ -8,6 +16,8 @@ dev = dict(
     template_path="templates",  # 设置模板路径
     static_path="static",  # 设置静态文件路径
     login_url="/login",  # 重定向到登录页面
+    cookie_secret="aaa",
+    xscf_cookies=True,
     # packet的配置
     pycket={
         "engine": "redis",  # 配置存储类型
@@ -23,8 +33,6 @@ dev = dict(
             "max_age": 360
         }
     },
-    cookie_secret="aaa",
-    xscf_cookies=True,
     db=dict(
         host='172.16.1.100',
         port=3306,
@@ -45,4 +53,9 @@ pro = dict(
 
 
 )
+
+
+# 初始化配置
+init_conf()
+
 

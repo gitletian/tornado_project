@@ -111,4 +111,4 @@ class user_model(db.Base):
         }
 
     def __repr__(self):
-        return u'<User1 - id: %s  name: %s>' % (self.id,self.user_name)
+        return u'<User1 - id: %s  name: %s>' % (self.id, self.user_name)
